@@ -29,12 +29,12 @@ def main():
         print("APIキーが金庫に設定されていません")
         return
 
-    # 🎯 秘密のAPIキーを使って、リクルートの公式サーバーからデータを直接引っこ抜きます
+    # 🎯 確実にヒットさせるため、キーワードをシンプルに「NEW」または「オープン」の片方ずつにします
     url = "http://webservice.recruit.co.jp/hotpepper/gourmet/v1/"
     params = {
         "key": RECRUIT_API_KEY,
-        "keyword": "OPEN 新着", # 最新のオープン情報を狙い撃ち
-        "count": 10,
+        "keyword": "ニューオープン", # 確実に新店が引っかかる魔法のワード
+        "count": 15,                # 最新の15件を取得
         "format": "json"
     }
     
@@ -55,6 +55,7 @@ def main():
         shop_name = shop.get("name")
         shop_url = shop.get("urls", {}).get("pc")
         catch_phrase = shop.get("catch", "新着オープン店舗です！")
+        address = shop.get("address", "") # 住所情報も追加
         
         if not shop_id or not shop_url:
             continue
@@ -63,11 +64,12 @@ def main():
             continue
             
         found_count += 1
-        # 🎉 公式データを使った超リッチな確定レイアウト通知！
+        # 🎉 公式データ満載の超リッチ通知レイアウト
         msg = (
-            f"🔥 🉐 **ホットペッパー 新店オープン検知（公式API版）** 🉐 🔥\n"
+            f"🔥 🉐 **ホットペッパー 新店オープン検知** 🉐 🔥\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🏪 **店舗名**: {shop_name}\n"
+            f"📍 **住所**: {address}\n"
             f"📝 **キャッチ**: {catch_phrase}\n"
             f"🔗 **ショップページ**: {shop_url}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━"
