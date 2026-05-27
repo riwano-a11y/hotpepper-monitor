@@ -1,0 +1,107 @@
+import os
+import requests
+import json
+from bs4 import BeautifulSoup
+
+# GitHubの金庫からSlackのURLを読み込みます
+WEBHOOK = os.environ.get("SLACK_WEBHOOK")
+STATE_FILE = "hotpepper_monitor_state.json"
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f: return json.load(f)
+        except: return []
+    return []
+
+def save_state(state):
+    try:
+        def_serializer = lambda obj: int(obj) if isinstance(obj, int) else str(obj)
+        with open(STATE_FILE, "w") as f: json.dump(state, f, indent=4, default=def_serializer)
+    except: pass
+
+def send_slack_notification(message):
+    if not WEBHOOK: return
+    payload = {"text": message}
+    try: requests.post(WEBHOOK, json=payload, timeout=10)
+    except: pass
+
+def main():
+    # 🎯 監視したいホットペッパーの「新着順」などのURLをここに貼ります
+    # （例として、特定のエリアやジャンルの新着順ページを想定しています）
+    url = "https://www.hotpepper.jp/gstr00001/new_open/" 
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Monitor/1.0"}
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code != 200: return
+    except:
+        return
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    state = load_state()
+    new_state = state.copy()
+    
+    # ホットペッパーの店舗ブログや店舗カードの塊を検知します
+    # ※監視したい「特定のURL」が決まったら、それに合わせて中身をさらに狙い撃ち調整も可能です！
+    shops = soup.find_all("div", class_=["shopDetailCard", "cassetteShop"])
+    
+    # もし上記で見つからない場合の、汎用的なリンク全スキャンモード
+    if not shops:
+        links = soup.find_all("a")
+        for link in links:
+            href = link.get("href", "")
+            if "/str" in href and "new_open" not in href:
+                if href.startswith("/"):
+                    shop_url = f"https://www.hotpepper.jp{href}"
+                else:
+                    shop_url = href
+                    
+                if shop_url in state:
+                    continue
+                    
+                shop_name = link.text.strip()
+                if not shop_name or len(shop_name) < 2:
+                    continue
+                    
+                # 🎉 ホットペッパー専用の可愛い通知レイアウト！
+                msg = (
+                    f"🔥 🉐 **ホットペッパー 新店・新着検知** 🉐 🔥\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🏪 **店舗名**: {shop_name}\n"
+                    f"🔗 **ショップページ**: {shop_url}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━"
+                )
+                send_slack_notification(msg)
+                new_state.append(shop_url)
+    else:
+        for shop in shops:
+            name_tag = shop.find(["h3", "h4", "p"], class_=["shopDetailCardName", "shopName"])
+            link_tag = shop.find("a")
+            
+            if link_tag:
+                href = link_tag["href"]
+                if href.startswith("/"):
+                    shop_url = f"https://www.hotpepper.jp{href}"
+                else:
+                    shop_url = href
+                    
+                if shop_url in state:
+                    continue
+                    
+                shop_name = name_tag.text.strip() if name_tag else "新着店舗（詳細よりご確認ください）"
+                
+                msg = (
+                    f"🔥 🉐 **ホットペッパー 新店・新着検知** 🉐 🔥\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🏪 **店舗名**: {shop_name}\n"
+                    f"🔗 **ショップページ**: {shop_url}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━"
+                )
+                send_slack_notification(msg)
+                new_state.append(shop_url)
+            
+    save_state(new_state)
+
+if __name__ == "__main__":
+    main()
