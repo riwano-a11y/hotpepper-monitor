@@ -1,22 +1,21 @@
 import os
 import requests
 import json
-import time
 from bs4 import BeautifulSoup
+from datetime import datetime # 🛠️【追加】時間を計算する部品を呼び出す
+import pytz # 🛠️【追加】日本時間を正確に測る部品
 
 WEBHOOK = os.environ.get("SLACK_WEBHOOK")
 STATE_FILE = "hotpepper_monitor_state.json"
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f: return json.load(f)
+        try: with open(STATE_FILE, "r") as f: return json.load(f)
         except: return []
     return []
 
 def save_state(state):
-    try:
-        with open(STATE_FILE, "w") as f: json.dump(state, f, indent=4)
+    try: with open(STATE_FILE, "w") as f: json.dump(state, f, indent=4)
     except: pass
 
 def send_slack_notification(message):
@@ -25,7 +24,7 @@ def send_slack_notification(message):
     try: requests.post(WEBHOOK, json=payload, timeout=10)
     except: pass
 
-def check_hotpepper():
+def main():
     url = "https://www.hotpepper.jp/gstr00001/new_open/" 
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
@@ -59,15 +58,13 @@ def check_hotpepper():
             new_state.append(shop_url)
             
     save_state(new_state)
+    
+    # 🛠️【大改造】現在の日本時間を「○時○分○秒」の形でゲットする
+    tokyo_time = datetime.now(pytz.timezone('Asia/Tokyo')).strftime('%H:%M:%S')
+    
     if found_count == 0:
-        send_slack_notification("🟢 【ホットペッパー監視】定期巡回完了。新着オープン店舗は0件でした（システム正常稼働中）")
-
-def main():
-    start_time = time.time()
-    while time.time() - start_time < 21000:
-        check_hotpepper()
-        print("5分間スリープします...")
-        time.sleep(300)
+        # 🎯 文章の末尾に毎回違う時間をくっつけることで、GitHubのエコ機能を一撃でブチ破る！
+        send_slack_notification(f"🟢 【ホットペッパー監視】定期巡回完了（正常稼働中） ➔ タイムスタンプ: 【{tokyo_time}】")
 
 if __name__ == "__main__":
     main()
