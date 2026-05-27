@@ -1,10 +1,10 @@
 import os
 import requests
 import json
+from bs4 import BeautifulSoup
 
-# GitHubの金庫からSlackのURLとリクルートのAPIキーを読み込みます
+# GitHubの金庫からSlackのURLを読み込みます
 WEBHOOK = os.environ.get("SLACK_WEBHOOK")
-RECRUIT_API_KEY = os.environ.get("RECRUIT_API_KEY")
 STATE_FILE = "hotpepper_monitor_state.json"
 
 def load_state():
@@ -26,60 +26,67 @@ def send_slack_notification(message):
     except: pass
 
 def main():
-    if not RECRUIT_API_KEY:
-        print("APIキーが設定されていません")
-        return
-
-    # 🎯 ホットペッパーのグルメ店検索APIを叩きます（新着順で最大20件取得）
-    # ※ start=1, count=20 で最新の20件を引っ張ります
-    url = "http://webservice.recruit.co.jp/hotpepper/gourmet/v1/"
-    params = {
-        "key": RECRUIT_API_KEY,
-        "keyword": "OPEN", # 「OPEN」や「新着」などのキーワードで絞り込み（自由に変えられます）
-        "order": 4,        # 4 = おすすめ順（または新着順に近い動きをするものに設定）
-        "count": 20,
-        "format": "json"
+    # 🎯 ホットペッパー公式の「ニューオープン（新着店舗）」一覧ページを直接狙い撃ちします
+    url = "https://www.hotpepper.jp/gstr00001/new_open/" 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     try:
-        r = requests.get(url, params=params, timeout=15)
-        if r.status_code != 200: return
-        data = r.json()
-    except:
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            print(f"アクセス失敗: {r.status_code}")
+            return
+    except Exception as e:
+        print(f"エラー: {e}")
         return
 
-    shops = data.get("results", {}).get("shop", [])
+    soup = BeautifulSoup(r.text, "html.parser")
     state = load_state()
     new_state = state.copy()
     
-    for shop in shops:
-        shop_id = shop.get("id")
-        shop_name = shop.get("name")
-        shop_url = shop.get("urls", {}).get("pc")
-        catch_phrase = shop.get("catch", "") # お店のキャッチコピー
-        open_info = shop.get("open", "")     # 営業時間やオープン情報
+    # 🎯 2026年現在のホットペッパー店舗カードの目印（クラス名）を徹底スキャン
+    # リンク（aタグ）の中から店舗個別ページ（/strXXXXX/）をすべて抜き出します
+    links = soup.find_all("a")
+    found_count = 0
+    
+    for link in links:
+        href = link.get("href", "")
         
-        if not shop_id or not shop_url:
-            continue
+        # 店舗個別ページのURLだけを綺麗に抽出します
+        if "/str" in href and "new_open" not in href and "report" not in href and "map" not in href:
+            if href.startswith("/"):
+                shop_url = f"https://www.hotpepper.jp{href}"
+            else:
+                shop_url = href
+                
+            # URLの後ろについている余計な文字（?ジャンル等）をカットして綺麗にします
+            shop_url = shop_url.split("?")[0]
             
-        # すでに通知済みの店舗（ID）ならスルー
-        if shop_id in state:
-            continue
+            # 店舗名（テキスト）を取得
+            shop_name = link.text.strip()
+            # 空っぽのものや、写真リンクなどの余計なテキストはスルー
+            if not shop_name or len(shop_name) < 3 or "店" not in shop_name and "無料" in shop_name:
+                continue
+                
+            # すでに通知済みのURLならスルーします
+            if shop_url in state:
+                continue
+                
+            found_count += 1
+            # 🎉 ホットペッパー専用の可愛い100点満点レイアウトで通知！
+            msg = (
+                f"🔥 🉐 **ホットペッパー 新店オープン検知** 🉐 🔥\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏪 **店舗名**: {shop_name}\n"
+                f"🔗 **ショップページ**: {shop_url}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+            send_slack_notification(msg)
+            new_state.append(shop_url)
             
-        # 🎉 ホットペッパー公式APIデータを使った、超リッチな通知レイアウト！
-        msg = (
-            f"🔥 🉐 **ホットペッパー 新店・新着検知（公式API版）** 🉐 🔥\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏪 **店舗名**: {shop_name}\n"
-            f"📝 **キャッチ**: {catch_phrase}\n"
-            f"📅 **オープン情報/営業**: {open_info}\n"
-            f"🔗 **ショップページ**: {shop_url}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
-        send_slack_notification(msg)
-        new_state.append(shop_id) # URLの代わりに確実なリクルート独自の店舗IDで記憶します
-        
     save_state(new_state)
+    print(f"検知した新着店舗数: {found_count}")
 
 if __name__ == "__main__":
     main()
