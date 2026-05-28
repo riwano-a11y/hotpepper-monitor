@@ -1,37 +1,29 @@
-name: Hotpepper-Monitor-Cron
+name: ホットペッパーモニタークロン
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/7 * * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [vlink_event]
 
 jobs:
   run-monitor:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 pytz
 
       - name: Run Python Script
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: python monitor.py
-
-      - name: Commit and Push Changes
-        run: |
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f hotpepper_monitor_state.json ]; then
-            git add hotpepper_monitor_state.json
-            git commit -m "Update monitor state [skip ci]" || echo "No changes to commit"
-            git push || echo "Push failed, but continuing..."
-          fi
