@@ -33,75 +33,58 @@ def main():
     found_count = 0
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
+    # 🎯 確実に新着が載っているメインページだけを一撃必殺で狙い撃ち（余計なページめくりはしない）
     targets = [
-        {"name": "グルメ", "base_url": "https://www.hotpepper.jp/gstr00030/newopen/"},
-        {"name": "ビューティー", "base_url": "https://beauty.hotpepper.jp/svcSA/stb0020/"}
+        {"name": "グルメ", "url": "https://www.hotpepper.jp/gstr00030/newopen/"},
+        {"name": "ビューティー", "url": "https://beauty.hotpepper.jp/svcSA/stb0020/"}
     ]
 
     for target in targets:
-        for page in range(1, 4):
-            if target["name"] == "グルメ":
-                url = f"{target['base_url']}page{page}.html" if page > 1 else target["base_url"]
-            else:
-                url = f"{target['base_url']}PN{page}.html" if page > 1 else target["base_url"]
-            
-            try:
-                r = requests.get(url, headers=headers, timeout=15)
-                if r.status_code != 200: break
-            except:
-                break
+        try:
+            r = requests.get(target["url"], headers=headers, timeout=15)
+            if r.status_code != 200: continue
+        except:
+            continue
 
-            soup = BeautifulSoup(r.text, "html.parser")
-            page_has_shops = False
-            
-            # --- ① グルメ側のスキャン ---
-            if target["name"] == "グルメ":
-                for shop_box in soup.find_all("h3", class_="shopListVolShopName"):
-                    link_tag = shop_box.find("a")
-                    if link_tag:
-                        shop_name = link_tag.text.strip()
-                        relative_url = link_tag.get("href")
-                        if not shop_name or not relative_url: continue
-                        page_has_shops = True
-                        
-                        if shop_name in state or shop_name in new_state: continue
-                        
-                        shop_url = f"https://www.hotpepper.jp{relative_url}"
-                        found_count += 1
-                        msg = f"🉐 🔥 **ホットペッパー グルメ新店** 🔥 🉐\n🏪 **店舗名**: {shop_name}\n🔗 **お店のページ**: {shop_url}"
-                        send_slack_notification(msg)
-                        new_state.append(shop_name)
-                        
-            # --- ② ビューティー側のスキャン（ゴミ文字を絶対に入れない精密センサー） ---
-            else:
-                # ビューティーの店舗名が入る「aタグのクラス名」を完全に固定して狙い撃ち
-                for link_tag in soup.find_all("a"):
-                    class_list = link_tag.get("class") or []
-                    class_str = " ".join(class_list)
+        soup = BeautifulSoup(r.text, "html.parser")
+        
+        # --- ① グルメ側の超高速スキャン ---
+        if target["name"] == "グルメ":
+            for shop_box in soup.find_all("h3", class_="shopListVolShopName"):
+                link_tag = shop_box.find("a")
+                if link_tag:
+                    shop_name = link_tag.text.strip()
+                    relative_url = link_tag.get("href")
+                    if not shop_name or not relative_url: continue
+                    if shop_name in state or shop_name in new_state: continue
                     
-                    # 店舗名リンクのクラス名（またはサロン詳細URL）を持つものだけを抽出
-                    if "slc-storeName__link" in class_str or (link_tag.parent and "subSrvHdr" in " ".join(link_tag.parent.get("class") or [])):
-                        href = link_tag.get("href") or ""
-                        if "/slnH" not in href: continue # サロン詳細URL以外は100%除外
-                        
-                        shop_name = link_tag.text.strip()
-                        # 不要な文字、ナビゲーション用のゴミ文字を完全にブロック
-                        if not shop_name or len(shop_name) < 3 or any(x in shop_name for x in ["一覧", "空席", "検索", "料理", "空間", "堪能", "ページ"]): continue
-                        page_has_shops = True
-                        
-                        if shop_name in state or shop_name in new_state: continue
-                        
-                        shop_url = href if href.startswith("http") else f"https://beauty.hotpepper.jp{href}"
-                        found_count += 1
-                        msg = f"💅 🔥 **ホットペッパー ビューティー新店** 🔥 💅\n🏪 **店舗名**: {shop_name}\n🔗 **サロンのページ**: {shop_url}"
-                        send_slack_notification(msg)
-                        new_state.append(shop_name)
-            
-            if not page_has_shops:
-                break
-                
+                    shop_url = f"https://www.hotpepper.jp{relative_url}"
+                    found_count += 1
+                    msg = f"🉐 🔥 **ホットペッパー グルメ新店** 🔥 🉐\n🏪 **店舗名**: {shop_name}\n🔗 **お店のページ**: {shop_url}"
+                    send_slack_notification(msg)
+                    new_state.append(shop_name)
+                    
+        # --- ② ビューティー側の超高速スキャン ---
+        else:
+            # ページ内のすべてのリンクから、サロン詳細（/slnH）だけを光速でぶっこ抜く！
+            for link_tag in soup.find_all("a", href=True):
+                href = link_tag.get("href")
+                if "/slnH" in href and "catalog" not in href and "coupon" not in href:
+                    shop_name = link_tag.text.strip()
+                    
+                    # ナビゲーションや無駄なゴミ文字、重複を完全にシャットアウト
+                    if not shop_name or len(shop_name) < 3 or any(x in shop_name for x in ["一覧", "空席", "検索", "メニュー", "ヘア", "スタイル", "こだわり"]): continue
+                    if shop_name in state or shop_name in new_state: continue
+                    
+                    shop_url = href if href.startswith("http") else f"https://beauty.hotpepper.jp{href}"
+                    found_count += 1
+                    msg = f"💅 🔥 **ホットペッパー ビューティー新店** 🔥 💅\n🏪 **店舗名**: {shop_name}\n🔗 **サロンのページ**: {shop_url}"
+                    send_slack_notification(msg)
+                    new_state.append(shop_name)
+                    
     save_state(new_state)
     
+    # 本当に完全新規が0件だった時だけ完了報告
     if found_count == 0:
         send_slack_notification(f"🉐 【ホットペッパー監視】グルメ＆ビューティー7分巡回完了 ➔ 【{tokyo_time}】")
 
