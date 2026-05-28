@@ -11,18 +11,14 @@ STATE_FILE = "monitor_state.json"
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except:
-            return []
+            with open(STATE_FILE, "r") as f: return json.load(f)
+        except: return []
     return []
 
 def save_state(state):
     try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=4)
-    except:
-        pass
+        with open(STATE_FILE, "w") as f: json.dump(state, f, indent=4)
+    except: pass
 
 def send_slack_notification(message):
     if not WEBHOOK: return
@@ -33,28 +29,23 @@ def send_slack_notification(message):
 def main():
     tokyo_time = datetime.now(pytz.timezone('Asia/Tokyo')).strftime('%H:%M:%S')
     url = "https://www.hotpepper.jp/gstr00030/newopen/"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code != 200:
-            send_slack_notification(f"🉐 【ホットペッパー】巡回完了（サイト混雑）➔ 【{tokyo_time}】")
-            return
-    except:
-        send_slack_notification(f"🉐 【ホットペッパー】巡回完了（通信混雑）➔ 【{tokyo_time}】")
-        return
+        if r.status_code != 200: return
+    except: return
 
     soup = BeautifulSoup(r.text, "html.parser")
     state = load_state()
     new_state = state.copy()
     
     found_count = 0
-    # 🎯 センサー強化：新店名の目印を網羅
-    for tag in soup.find_all(["h3", "div", "span"]):
-        if tag.get("class") and any("ShopName" in c or "shopName" in c for c in tag.get("class")):
+    # 🎯 どんなタグに入っていても、クラス名に「ShopName」や「shop」がついていたら全部店名として強制捕獲！
+    for tag in soup.find_all(True):
+        if tag.get("class") and any("shop" in str(c).lower() or "name" in str(c).lower() for c in tag.get("class")):
             shop_name = tag.text.strip()
-            if not shop_name or len(shop_name) < 2: continue
+            if not shop_name or len(shop_name) < 3 or len(shop_name) > 30: continue
+            if "クーポン" in shop_name or "ネット予約" in shop_name or "地図" in shop_name: continue
             if shop_name in state or shop_name in new_state: continue
             
             found_count += 1
