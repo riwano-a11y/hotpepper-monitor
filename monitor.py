@@ -31,21 +31,18 @@ def send_slack_notification(message):
     except: pass
 
 def main():
-    # 🕒 先に日本時間を計算
     tokyo_time = datetime.now(pytz.timezone('Asia/Tokyo')).strftime('%H:%M:%S')
-    
     url = "https://www.hotpepper.jp/gstr00030/newopen/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
-    
     try:
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code != 200:
-            send_slack_notification(f"🉐 【ホットペッパー監視】7分定期巡回完了 ➔ タイムスタンプ: 【{tokyo_time}】(※サイト混雑)")
+            send_slack_notification(f"🉐 【ホットペッパー】巡回完了（サイト混雑）➔ 【{tokyo_time}】")
             return
     except:
-        send_slack_notification(f"🉐 【ホットペッパー監視】7分定期巡回完了 ➔ タイムスタンプ: 【{tokyo_time}】(※通信一時混雑)")
+        send_slack_notification(f"🉐 【ホットペッパー】巡回完了（通信混雑）➔ 【{tokyo_time}】")
         return
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -53,20 +50,19 @@ def main():
     new_state = state.copy()
     
     found_count = 0
-    
-    # 新着店舗の検索
-    for shop in soup.find_all("h3", class_="shopListVolShopName"):
-        shop_name = shop.text.strip()
-        if shop_name in state or shop_name in new_state: continue
-        
-        found_count += 1
-        msg = f"🉐 🔥 **ホットペッパー 新店検知** 🔥 🉐\n🏪 **店舗名**: {shop_name}"
-        send_slack_notification(msg)
-        new_state.append(shop_name)
+    # 🎯 センサー強化：新店名の目印を網羅
+    for tag in soup.find_all(["h3", "div", "span"]):
+        if tag.get("class") and any("ShopName" in c or "shopName" in c for c in tag.get("class")):
+            shop_name = tag.text.strip()
+            if not shop_name or len(shop_name) < 2: continue
+            if shop_name in state or shop_name in new_state: continue
+            
+            found_count += 1
+            msg = f"🉐 🔥 **ホットペッパー 新店検知** 🔥 🉐\n🏪 **店舗名**: {shop_name}"
+            send_slack_notification(msg)
+            new_state.append(shop_name)
             
     save_state(new_state)
-    
-    # 🎯 新着ゼロでも必ず完了通知を飛ばす
     if found_count == 0:
         send_slack_notification(f"🉐 【ホットペッパー監視】7分定期巡回完了 ➔ タイムスタンプ: 【{tokyo_time}】")
 
