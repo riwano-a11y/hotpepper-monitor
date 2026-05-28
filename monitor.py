@@ -72,17 +72,38 @@ def main():
                         send_slack_notification(msg)
                         new_state.append(shop_name)
                         
-            # --- ② ビューティー側のスキャン（URL抽出強化版）---
+            # --- ② ビューティー側のスキャン ---
             else:
-                # サロン名が入るh3やdivなどのブロックを特定して確実に抜き出す
                 for shop_box in soup.find_all(["h3", "div"]):
-                    # ホットペッパービューティーの店舗名リンクによく使われるクラス名や構造を指定
                     class_str = "".join(shop_box.get("class") or [])
                     if "subSrvHdr" in class_str or "c-tile-product__title" in class_str or "slc-storeName" in class_str or shop_box.name == "h3":
                         link_tag = shop_box.find("a")
                         if link_tag:
                             href = link_tag.get("href") or ""
-                            if "/slnH" not in href: continue # サロン詳細ページ以外のURLは弾く
+                            if "/slnH" not in href: continue
                             
                             shop_name = link_tag.text.strip()
-                            if not shop_name
+                            
+                            # 🎯【修正完了】コロン（ : ）をバチッと入れ直しました！
+                            if not shop_name or len(shop_name) < 3 or "一覧" in shop_name or "空席" in shop_name: continue
+                            page_has_shops = True
+                            
+                            if shop_name in state or shop_name in new_state: continue
+                            
+                            shop_url = href if href.startswith("http") else f"https://beauty.hotpepper.jp{href}"
+                            
+                            found_count += 1
+                            msg = f"💅 🔥 **ホットペッパー ビューティー新店** 🔥 💅\n🏪 **店舗名**: {shop_name}\n🔗 **サロンのページ**: {shop_url}"
+                            send_slack_notification(msg)
+                            new_state.append(shop_name)
+            
+            if not page_has_shops:
+                break
+                
+    save_state(new_state)
+    
+    if found_count == 0:
+        send_slack_notification(f"🉐 【ホットペッパー監視】グルメ＆ビューティー7分巡回完了 ➔ 【{tokyo_time}】")
+
+if __name__ == "__main__":
+    main()
