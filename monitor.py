@@ -72,30 +72,30 @@ def main():
                         send_slack_notification(msg)
                         new_state.append(shop_name)
                         
-            # --- ② ビューティー側のスキャン ---
+            # --- ② ビューティー側のスキャン（ゴミ文字を絶対に入れない精密センサー） ---
             else:
-                for shop_box in soup.find_all(["h3", "div"]):
-                    class_str = "".join(shop_box.get("class") or [])
-                    if "subSrvHdr" in class_str or "c-tile-product__title" in class_str or "slc-storeName" in class_str or shop_box.name == "h3":
-                        link_tag = shop_box.find("a")
-                        if link_tag:
-                            href = link_tag.get("href") or ""
-                            if "/slnH" not in href: continue
-                            
-                            shop_name = link_tag.text.strip()
-                            
-                            # 🎯【修正完了】コロン（ : ）をバチッと入れ直しました！
-                            if not shop_name or len(shop_name) < 3 or "一覧" in shop_name or "空席" in shop_name: continue
-                            page_has_shops = True
-                            
-                            if shop_name in state or shop_name in new_state: continue
-                            
-                            shop_url = href if href.startswith("http") else f"https://beauty.hotpepper.jp{href}"
-                            
-                            found_count += 1
-                            msg = f"💅 🔥 **ホットペッパー ビューティー新店** 🔥 💅\n🏪 **店舗名**: {shop_name}\n🔗 **サロンのページ**: {shop_url}"
-                            send_slack_notification(msg)
-                            new_state.append(shop_name)
+                # ビューティーの店舗名が入る「aタグのクラス名」を完全に固定して狙い撃ち
+                for link_tag in soup.find_all("a"):
+                    class_list = link_tag.get("class") or []
+                    class_str = " ".join(class_list)
+                    
+                    # 店舗名リンクのクラス名（またはサロン詳細URL）を持つものだけを抽出
+                    if "slc-storeName__link" in class_str or (link_tag.parent and "subSrvHdr" in " ".join(link_tag.parent.get("class") or [])):
+                        href = link_tag.get("href") or ""
+                        if "/slnH" not in href: continue # サロン詳細URL以外は100%除外
+                        
+                        shop_name = link_tag.text.strip()
+                        # 不要な文字、ナビゲーション用のゴミ文字を完全にブロック
+                        if not shop_name or len(shop_name) < 3 or any(x in shop_name for x in ["一覧", "空席", "検索", "料理", "空間", "堪能", "ページ"]): continue
+                        page_has_shops = True
+                        
+                        if shop_name in state or shop_name in new_state: continue
+                        
+                        shop_url = href if href.startswith("http") else f"https://beauty.hotpepper.jp{href}"
+                        found_count += 1
+                        msg = f"💅 🔥 **ホットペッパー ビューティー新店** 🔥 💅\n🏪 **店舗名**: {shop_name}\n🔗 **サロンのページ**: {shop_url}"
+                        send_slack_notification(msg)
+                        new_state.append(shop_name)
             
             if not page_has_shops:
                 break
